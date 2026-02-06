@@ -29,8 +29,7 @@ st.caption("Strategic Engineering for Wealth Protection and Creation")
 def calculate_annual_leakage(assets, tax_rate, inflation_rate):
     inflation_loss = assets * inflation_rate
     tax_loss = assets * tax_rate
-    total = inflation_loss + tax_loss
-    return inflation_loss, tax_loss, total
+    return inflation_loss, tax_loss, inflation_loss + tax_loss
 
 
 def opportunity_cost(monthly_amount, annual_rate, years):
@@ -49,15 +48,20 @@ def debt_payoff(debts, monthly_payment, method="avalanche"):
     )
     months = 0
     while any(d["balance"] > 0 for d in debts):
+        remaining_payment = monthly_payment
+
         for debt in debts:
-            if debt["balance"] > 0:
-                pay = min(monthly_payment, debt["balance"])
+            if debt["balance"] > 0 and remaining_payment > 0:
+                pay = min(remaining_payment, debt["balance"])
                 debt["balance"] -= pay
-                break
+                remaining_payment -= pay
+
         for debt in debts:
             if debt["balance"] > 0:
                 debt["balance"] *= (1 + debt["rate"] / 12)
+
         months += 1
+
     return months
 
 # =========================================================
@@ -86,6 +90,10 @@ with st.sidebar:
     tax = st.slider("Tax Leakage (%)", 0, 50, 25) / 100
     inflation = st.slider("Inflation Rate (%)", 0, 15, 4) / 100
 
+    st.divider()
+    st.subheader("Time Horizon")
+    years = st.slider("Projection Horizon (Years)", 5, 50, 30)
+
 # =========================================================
 # CORE PROJECTION ENGINE
 # =========================================================
@@ -95,7 +103,7 @@ monthly_surplus = income - expenses
 wealth_projection = []
 current_val = assets
 
-for year in range(31):
+for year in range(years + 1):
     wealth_projection.append(current_val)
     current_val = (current_val + monthly_surplus * 12) * (1 + real_rate)
 
@@ -118,17 +126,25 @@ c3.metric("Total Annual Leakage", f"${total_leak:,.2f}")
 # =========================================================
 st.divider()
 st.subheader("🚀 Opportunity Cost Engine")
+st.caption("This assumes long-term disciplined investing and consistent contributions.")
 
-redirect = st.checkbox("Redirect $500/month from a liability to an asset")
+redirect = st.checkbox("Redirect monthly cash from a liability to an asset")
 
-if redirect:
+monthly_redirect = st.number_input(
+    "Monthly Amount to Redirect ($)",
+    min_value=0,
+    value=500,
+    step=50
+)
+
+if redirect and monthly_redirect > 0:
     future_val = opportunity_cost(
-        monthly_amount=500,
+        monthly_amount=monthly_redirect,
         annual_rate=growth * (1 - tax),
-        years=30
+        years=years
     )
     st.metric(
-        "Value of Redirected Cash (30 Years)",
+        f"Value of Redirected Cash ({years} Years)",
         f"${future_val:,.2f}"
     )
 
@@ -140,19 +156,34 @@ st.subheader("⚔️ Debt Eradicator")
 
 method = st.radio("Payoff Strategy", ["Avalanche", "Snowball"])
 
-sample_debts = [
-    {"balance": 5000, "rate": 0.24},
-    {"balance": 12000, "rate": 0.12},
-    {"balance": 8000, "rate": 0.18},
-]
+st.markdown("### Enter Your Debts")
 
-months_to_zero = debt_payoff(
-    debts=sample_debts,
-    monthly_payment=1000,
-    method=method.lower()
+debts = []
+
+for i in range(1, 4):
+    col1, col2 = st.columns(2)
+    with col1:
+        balance = st.number_input(f"Debt {i} Balance ($)", min_value=0, value=0)
+    with col2:
+        rate = st.number_input(f"Debt {i} Interest Rate (%)", min_value=0.0, value=0.0) / 100
+
+    if balance > 0 and rate > 0:
+        debts.append({"balance": balance, "rate": rate})
+
+monthly_payment = st.number_input(
+    "Total Monthly Debt Payment ($)",
+    min_value=0,
+    value=1000,
+    step=50
 )
 
-st.metric("Months to Become Debt-Free", f"{months_to_zero} months")
+if debts and monthly_payment > 0:
+    months_to_zero = debt_payoff(
+        debts=debts,
+        monthly_payment=monthly_payment,
+        method=method.lower()
+    )
+    st.metric("Months to Become Debt-Free", f"{months_to_zero} months")
 
 # =========================================================
 # WEALTH CHART
@@ -162,7 +193,7 @@ st.subheader("📈 Wealth Accumulation Curve")
 
 fig = go.Figure()
 fig.add_trace(go.Scatter(
-    x=list(range(31)),
+    x=list(range(years + 1)),
     y=wealth_projection,
     fill="tozeroy",
     line=dict(color="#1f77b4")
