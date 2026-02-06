@@ -53,7 +53,6 @@ def calculate_annual_leakage(assets, tax_rate, inflation_rate, interest_rate=0.0
 def opportunity_cost(monthly_amount, annual_rate, years):
     months = years * 12
     monthly_rate = annual_rate / 12
-    # closed-form future value of annuity
     if monthly_rate == 0:
         return monthly_amount * months
     return monthly_amount * ((1 + monthly_rate)**months - 1) / monthly_rate
@@ -82,21 +81,16 @@ def debt_payoff(debts, monthly_payment, method="avalanche"):
 # =========================================================
 @st.cache_data
 def get_cbk_data():
-    # Example: CBK publishes Excel at https://www.centralbank.go.ke/wp-content/uploads/... 
-    # Replace with the actual CBK monthly indicators link
+    # Example CBK monthly indicators file (replace with current link)
     url = "https://www.centralbank.go.ke/wp-content/uploads/2025/12/Monthly-Economic-Indicators.xlsx"
     response = requests.get(url)
     df = pd.read_excel(BytesIO(response.content))
-    # Parse relevant indicators (adjust column names to match CBK file)
-    latest = df.iloc[-1]  # last row = most recent month
+    latest = df.iloc[-1]  # most recent month
     return {
-        "growth": float(latest.get("GDP Growth", 5.0)) / 100,
-        "tax": float(latest.get("Tax Rate", 25.0)) / 100,
-        "inflation": float(latest.get("Inflation Rate", 4.0)) / 100,
-        "interest": float(latest.get("Interest Rate", 12.0)) / 100,
+        "inflation": float(latest.get("Inflation Rate (%)", 4.0)) / 100,
+        "interest": float(latest.get("91-day T-Bill Rate (%)", 12.0)) / 100,
         "exchange": float(latest.get("KES/USD", 150.0)),
-        "unemployment": float(latest.get("Unemployment Rate", 6.0)) / 100,
-        "debt_gdp": float(latest.get("Debt-to-GDP", 65.0)) / 100
+        # Keep manual inputs for tax, GDP growth, unemployment, debt/GDP
     }
 
 eco_data = get_cbk_data()
@@ -112,28 +106,24 @@ with st.sidebar:
 
     mode = st.radio("Primary Objective", ["Protect Wealth (Rich)", "Create Wealth (Poor)"])
 
-    income = st.number_input(
-        f"Monthly Income ({currency_symbol})",
-        value=10000 if mode == "Protect Wealth (Rich)" else 3000
-    )
-    expenses = st.number_input(
-        f"Monthly Expenses ({currency_symbol})",
-        value=4000 if mode == "Protect Wealth (Rich)" else 2500
-    )
-    assets = st.number_input(
-        f"Current Assets ({currency_symbol})",
-        value=500000 if mode == "Protect Wealth (Rich)" else 1000
-    )
+    income = st.number_input(f"Monthly Income ({currency_symbol})",
+                             value=10000 if mode == "Protect Wealth (Rich)" else 3000)
+    expenses = st.number_input(f"Monthly Expenses ({currency_symbol})",
+                               value=4000 if mode == "Protect Wealth (Rich)" else 2500)
+    assets = st.number_input(f"Current Assets ({currency_symbol})",
+                             value=500000 if mode == "Protect Wealth (Rich)" else 1000)
 
     st.divider()
-    st.subheader("Economic Variables (Auto-Updated from CBK)")
-    st.metric("GDP Growth (%)", f"{eco_data['growth']*100:.2f}%")
+    st.subheader("Economic Variables (CBK + Manual)")
     st.metric("Inflation Rate (%)", f"{eco_data['inflation']*100:.2f}%")
-    st.metric("Tax Rate (%)", f"{eco_data['tax']*100:.2f}%")
     st.metric("Interest Rate (%)", f"{eco_data['interest']*100:.2f}%")
     st.metric("Exchange Rate (KES/USD)", f"{eco_data['exchange']:.2f}")
-    st.metric("Unemployment Rate (%)", f"{eco_data['unemployment']*100:.2f}%")
-    st.metric("Debt-to-GDP (%)", f"{eco_data['debt_gdp']*100:.2f}%")
+
+    # Manual inputs for variables CBK doesn’t publish
+    growth = st.number_input("Expected Market Growth (%)", min_value=0.0, max_value=100.0, value=8.0, step=0.1) / 100
+    tax = st.number_input("Tax Leakage (%)", min_value=0.0, max_value=100.0, value=25.0, step=0.1) / 100
+    unemployment = st.number_input("Unemployment Rate (%)", min_value=0.0, max_value=100.0, value=6.0, step=0.1) / 100
+    debt_gdp = st.number_input("Debt-to-GDP (%)", min_value=0.0, max_value=200.0, value=65.0, step=0.1) / 100
 
     st.divider()
     st.subheader("Time Horizon")
@@ -145,7 +135,7 @@ with st.sidebar:
 # =========================================================
 # CORE PROJECTION ENGINE
 # =========================================================
-real_rate = (eco_data["growth"] * (1 - eco_data["tax"])) - eco_data["inflation"]
+real_rate = (growth * (1 - tax)) - eco_data["inflation"]
 monthly_surplus = income - expenses
 display_surplus = monthly_surplus if view_mode == "Monthly" else monthly_surplus * 12
 
@@ -159,7 +149,7 @@ for _ in range(years + 1):
 # LEAKAGE DETECTOR
 # =========================================================
 infl_loss, tax_loss, interest_drag, total_leak = calculate_annual_leakage(
-    assets, eco_data["tax"], eco_data["inflation"], eco_data["interest"]
+    assets, tax, eco_data["inflation"], eco_data["interest"]
 )
 
 st.subheader("🧯 Leakage Detector")
@@ -181,20 +171,13 @@ st.metric(f"Surplus ({view_mode})", money(display_surplus))
 # =========================================================
 st.divider()
 st.subheader("🚀 Opportunity Cost Engine")
-st.caption("This assumes long-term disciplined investing and consistent contributions.")
-
 redirect = st.checkbox(f"Redirect {view_mode.lower()} cash from a liability to an asset")
-monthly_redirect = st.number_input(
-    f"Monthly Amount to Redirect ({currency_symbol})",
-    min_value=0,
-    value=500,
-    step=50
-)
+monthly_redirect = st.number_input(f"Monthly Amount to Redirect ({currency_symbol})", min_value=0, value=500, step=50)
 
 if redirect and monthly_redirect > 0:
     future_val = opportunity_cost(
         monthly_amount=monthly_redirect if view_mode == "Monthly" else monthly_redirect / 12,
-        annual_rate=eco_data["growth"] * (1 - eco_data["tax"]),
+        annual_rate=growth * (1 - tax),
         years=years
     )
     st.metric(f"Value of Redirected Cash ({years} Years)", money(future_val))
@@ -203,14 +186,4 @@ if redirect and monthly_redirect > 0:
 # DEBT ERADICATOR
 # =========================================================
 st.divider()
-st.subheader("⚔️ Debt Eradicator")
-
-method = st.radio("Payoff Strategy", ["Avalanche", "Snowball"])
-st.markdown("### Enter Your Debts")
-
-debts = []
-for i in range(1, 4):
-    col1, col2 = st.columns(2)
-    with col1:
-        balance = st.number_input(f"Debt {i} Balance ({currency_symbol})", min_value=0, value=0)
-    with col2:
+st.subheader("⚔️ Debt Erad
