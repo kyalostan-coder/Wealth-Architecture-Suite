@@ -74,7 +74,7 @@ def debt_payoff(debts, monthly_payment, method="avalanche"):
     return months
 
 # =========================================================
-# COUNTRY PRESETS
+# COUNTRY PRESETS (with live search placeholders)
 # =========================================================
 COUNTRY_PRESETS = {
     "USA": {"currency": "USD ($)", "growth_query": "current GDP growth rate USA 2026",
@@ -101,6 +101,7 @@ with st.sidebar:
     country = st.selectbox("Select Country", list(COUNTRY_PRESETS.keys()))
     preset = COUNTRY_PRESETS[country]
 
+    # Currency auto-aligns
     currency_choice = preset["currency"]
     currency_symbol = CURRENCIES[currency_choice]
 
@@ -122,6 +123,8 @@ with st.sidebar:
     st.divider()
     st.subheader("Economic Variables")
 
+    # Live search placeholders — in practice, these would call search_web
+    # For demo, we use default values until integrated with search_web
     growth = st.number_input("Expected Market Growth (%)", min_value=0.0, max_value=100.0, value=5.0, step=0.1) / 100
     tax = st.number_input("Tax Leakage (%)", min_value=0.0, max_value=100.0, value=25.0, step=0.1) / 100
     inflation = st.number_input("Inflation Rate (%)", min_value=0.0, max_value=100.0, value=3.0, step=0.1) / 100
@@ -210,6 +213,7 @@ method = st.radio("Payoff Strategy", ["Avalanche", "Snowball"])
 st.markdown("### Enter Your Debts")
 
 debts = []
+
 for i in range(1, 4):
     col1, col2 = st.columns(2)
     with col1:
@@ -222,16 +226,3 @@ for i in range(1, 4):
         rate = st.number_input(
             f"Debt {i} Interest Rate (%)",
             min_value=0.0,
-            max_value=100.0,
-            value=5.0,
-            step=0.1
-        ) / 100
-    debts.append({"balance": balance, "rate": rate})
-
-monthly_payment = st.number_input(
-    f"Total Monthly Payment ({currency_symbol})",
-    min_value=0,
-    value=1000,
-    step=100
-)
-
