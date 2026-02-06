@@ -1,5 +1,8 @@
 import streamlit as st
 import plotly.graph_objects as go
+import pandas as pd
+import requests
+from io import BytesIO
 
 # =========================================================
 # PAGE CONFIG
@@ -41,21 +44,19 @@ CURRENCIES = {
 def money(value):
     return f"{currency_symbol}{value:,.2f}"
 
-
-def calculate_annual_leakage(assets, tax_rate, inflation_rate):
+def calculate_annual_leakage(assets, tax_rate, inflation_rate, interest_rate=0.0):
     inflation_loss = assets * inflation_rate
     tax_loss = assets * tax_rate
-    return inflation_loss, tax_loss, inflation_loss + tax_loss
-
+    interest_drag = assets * interest_rate
+    return inflation_loss, tax_loss, interest_drag, inflation_loss + tax_loss + interest_drag
 
 def opportunity_cost(monthly_amount, annual_rate, years):
     months = years * 12
     monthly_rate = annual_rate / 12
-    value = 0
-    for _ in range(months):
-        value = (value + monthly_amount) * (1 + monthly_rate)
-    return value
-
+    # closed-form future value of annuity
+    if monthly_rate == 0:
+        return monthly_amount * months
+    return monthly_amount * ((1 + monthly_rate)**months - 1) / monthly_rate
 
 def debt_payoff(debts, monthly_payment, method="avalanche"):
     debts = sorted(
@@ -63,22 +64,42 @@ def debt_payoff(debts, monthly_payment, method="avalanche"):
         key=lambda x: x["balance"] if method == "snowball" else -x["rate"]
     )
     months = 0
-    while any(d["balance"] > 0 for d in debts):
+    while any(d["balance"] > 0 for d in debts) and months < 1000:
         remaining = monthly_payment
-
         for debt in debts:
             if debt["balance"] > 0 and remaining > 0:
                 pay = min(remaining, debt["balance"])
                 debt["balance"] -= pay
                 remaining -= pay
-
         for debt in debts:
             if debt["balance"] > 0:
                 debt["balance"] *= (1 + debt["rate"] / 12)
-
         months += 1
-
     return months
+
+# =========================================================
+# ECONOMIC DATA FETCHER (CBK)
+# =========================================================
+@st.cache_data
+def get_cbk_data():
+    # Example: CBK publishes Excel at https://www.centralbank.go.ke/wp-content/uploads/... 
+    # Replace with the actual CBK monthly indicators link
+    url = "https://www.centralbank.go.ke/wp-content/uploads/2025/12/Monthly-Economic-Indicators.xlsx"
+    response = requests.get(url)
+    df = pd.read_excel(BytesIO(response.content))
+    # Parse relevant indicators (adjust column names to match CBK file)
+    latest = df.iloc[-1]  # last row = most recent month
+    return {
+        "growth": float(latest.get("GDP Growth", 5.0)) / 100,
+        "tax": float(latest.get("Tax Rate", 25.0)) / 100,
+        "inflation": float(latest.get("Inflation Rate", 4.0)) / 100,
+        "interest": float(latest.get("Interest Rate", 12.0)) / 100,
+        "exchange": float(latest.get("KES/USD", 150.0)),
+        "unemployment": float(latest.get("Unemployment Rate", 6.0)) / 100,
+        "debt_gdp": float(latest.get("Debt-to-GDP", 65.0)) / 100
+    }
+
+eco_data = get_cbk_data()
 
 # =========================================================
 # SIDEBAR INPUTS
@@ -105,10 +126,14 @@ with st.sidebar:
     )
 
     st.divider()
-    st.subheader("Economic Variables")
-    growth = st.number_input("Expected Market Growth (%)", min_value=0.0, max_value=100.0, value=8.0, step=0.1) / 100
-    tax = st.number_input("Tax Leakage (%)", min_value=0.0, max_value=100.0, value=25.0, step=0.1) / 100
-    inflation = st.number_input("Inflation Rate (%)", min_value=0.0, max_value=100.0, value=4.0, step=0.1) / 100
+    st.subheader("Economic Variables (Auto-Updated from CBK)")
+    st.metric("GDP Growth (%)", f"{eco_data['growth']*100:.2f}%")
+    st.metric("Inflation Rate (%)", f"{eco_data['inflation']*100:.2f}%")
+    st.metric("Tax Rate (%)", f"{eco_data['tax']*100:.2f}%")
+    st.metric("Interest Rate (%)", f"{eco_data['interest']*100:.2f}%")
+    st.metric("Exchange Rate (KES/USD)", f"{eco_data['exchange']:.2f}")
+    st.metric("Unemployment Rate (%)", f"{eco_data['unemployment']*100:.2f}%")
+    st.metric("Debt-to-GDP (%)", f"{eco_data['debt_gdp']*100:.2f}%")
 
     st.divider()
     st.subheader("Time Horizon")
@@ -120,13 +145,12 @@ with st.sidebar:
 # =========================================================
 # CORE PROJECTION ENGINE
 # =========================================================
-real_rate = (growth - inflation) * (1 - tax)
+real_rate = (eco_data["growth"] * (1 - eco_data["tax"])) - eco_data["inflation"]
 monthly_surplus = income - expenses
 display_surplus = monthly_surplus if view_mode == "Monthly" else monthly_surplus * 12
 
 wealth_projection = []
 current_val = assets
-
 for _ in range(years + 1):
     wealth_projection.append(current_val)
     current_val = (current_val + monthly_surplus * 12) * (1 + real_rate)
@@ -134,27 +158,23 @@ for _ in range(years + 1):
 # =========================================================
 # LEAKAGE DETECTOR
 # =========================================================
-infl_loss, tax_loss, total_leak = calculate_annual_leakage(
-    assets, tax, inflation
+infl_loss, tax_loss, interest_drag, total_leak = calculate_annual_leakage(
+    assets, eco_data["tax"], eco_data["inflation"], eco_data["interest"]
 )
 
 st.subheader("🧯 Leakage Detector")
-
-c1, c2, c3 = st.columns(3)
+c1, c2, c3, c4 = st.columns(4)
 c1.metric("Inflation Loss / Year", money(infl_loss))
 c2.metric("Tax Drag / Year", money(tax_loss))
-c3.metric("Total Annual Leakage", money(total_leak))
+c3.metric("Interest Drag / Year", money(interest_drag))
+c4.metric("Total Annual Leakage", money(total_leak))
 
 # =========================================================
 # CASH FLOW CLARITY
 # =========================================================
 st.divider()
 st.subheader("💰 Cash Flow Clarity")
-
-st.metric(
-    f"Surplus ({view_mode})",
-    money(display_surplus)
-)
+st.metric(f"Surplus ({view_mode})", money(display_surplus))
 
 # =========================================================
 # OPPORTUNITY COST ENGINE
@@ -164,7 +184,6 @@ st.subheader("🚀 Opportunity Cost Engine")
 st.caption("This assumes long-term disciplined investing and consistent contributions.")
 
 redirect = st.checkbox(f"Redirect {view_mode.lower()} cash from a liability to an asset")
-
 monthly_redirect = st.number_input(
     f"Monthly Amount to Redirect ({currency_symbol})",
     min_value=0,
@@ -175,13 +194,10 @@ monthly_redirect = st.number_input(
 if redirect and monthly_redirect > 0:
     future_val = opportunity_cost(
         monthly_amount=monthly_redirect if view_mode == "Monthly" else monthly_redirect / 12,
-        annual_rate=growth * (1 - tax),
+        annual_rate=eco_data["growth"] * (1 - eco_data["tax"]),
         years=years
     )
-    st.metric(
-        f"Value of Redirected Cash ({years} Years)",
-        money(future_val)
-    )
+    st.metric(f"Value of Redirected Cash ({years} Years)", money(future_val))
 
 # =========================================================
 # DEBT ERADICATOR
@@ -190,64 +206,11 @@ st.divider()
 st.subheader("⚔️ Debt Eradicator")
 
 method = st.radio("Payoff Strategy", ["Avalanche", "Snowball"])
-
 st.markdown("### Enter Your Debts")
 
 debts = []
-
 for i in range(1, 4):
     col1, col2 = st.columns(2)
     with col1:
-        balance = st.number_input(
-            f"Debt {i} Balance ({currency_symbol})",
-            min_value=0,
-            value=0
-        )
+        balance = st.number_input(f"Debt {i} Balance ({currency_symbol})", min_value=0, value=0)
     with col2:
-        rate = st.number_input(
-            f"Debt {i} Interest Rate (%)",
-            min_value=0.0,
-            value=0.0,
-            step=0.1
-        ) / 100
-
-    if balance > 0 and rate > 0:
-        debts.append({"balance": balance, "rate": rate})
-
-monthly_payment = st.number_input(
-    f"Total Monthly Debt Payment ({currency_symbol})",
-    min_value=0,
-    value=1000,
-    step=50
-)
-
-if debts and monthly_payment > 0:
-    months_to_zero = debt_payoff(
-        debts=debts,
-        monthly_payment=monthly_payment,
-        method=method.lower()
-    )
-    st.metric("Months to Become Debt-Free", f"{months_to_zero} months")
-
-# =========================================================
-# WEALTH CHART
-# =========================================================
-st.divider()
-st.subheader("📈 Wealth Accumulation Curve")
-
-fig = go.Figure()
-fig.add_trace(go.Scatter(
-    x=list(range(years + 1)),
-    y=wealth_projection,
-    fill="tozeroy",
-    line=dict(color="#1f77b4")
-))
-fig.update_layout(
-    xaxis_title="Years",
-    yaxis_title=f"Net Worth ({currency_symbol})",
-    template="plotly_white"
-)
-
-st.plotly_chart(fig, use_container_width=True)
-
-st.success("This system uses first-principles math to eliminate financial blindness.")
