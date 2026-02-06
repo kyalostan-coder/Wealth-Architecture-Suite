@@ -24,8 +24,24 @@ st.title("🏛️ Wealth Architecture Suite")
 st.caption("Strategic Engineering for Wealth Protection and Creation")
 
 # =========================================================
+# CURRENCY CONFIG
+# =========================================================
+CURRENCIES = {
+    "USD ($)": "$",
+    "EUR (€)": "€",
+    "GBP (£)": "£",
+    "KES (KSh)": "KSh ",
+    "INR (₹)": "₹",
+    "NGN (₦)": "₦"
+}
+
+# =========================================================
 # FUNCTIONS — CORE ENGINE
 # =========================================================
+def money(value):
+    return f"{currency_symbol}{value:,.2f}"
+
+
 def calculate_annual_leakage(assets, tax_rate, inflation_rate):
     inflation_loss = assets * inflation_rate
     tax_loss = assets * tax_rate
@@ -48,13 +64,13 @@ def debt_payoff(debts, monthly_payment, method="avalanche"):
     )
     months = 0
     while any(d["balance"] > 0 for d in debts):
-        remaining_payment = monthly_payment
+        remaining = monthly_payment
 
         for debt in debts:
-            if debt["balance"] > 0 and remaining_payment > 0:
-                pay = min(remaining_payment, debt["balance"])
+            if debt["balance"] > 0 and remaining > 0:
+                pay = min(remaining, debt["balance"])
                 debt["balance"] -= pay
-                remaining_payment -= pay
+                remaining -= pay
 
         for debt in debts:
             if debt["balance"] > 0:
@@ -69,18 +85,22 @@ def debt_payoff(debts, monthly_payment, method="avalanche"):
 # =========================================================
 with st.sidebar:
     st.header("Financial DNA")
+
+    currency_choice = st.selectbox("Currency", list(CURRENCIES.keys()))
+    currency_symbol = CURRENCIES[currency_choice]
+
     mode = st.radio("Primary Objective", ["Protect Wealth (Rich)", "Create Wealth (Poor)"])
 
     income = st.number_input(
-        "Monthly Income ($)",
+        f"Monthly Income ({currency_symbol})",
         value=10000 if mode == "Protect Wealth (Rich)" else 3000
     )
     expenses = st.number_input(
-        "Monthly Expenses ($)",
+        f"Monthly Expenses ({currency_symbol})",
         value=4000 if mode == "Protect Wealth (Rich)" else 2500
     )
     assets = st.number_input(
-        "Current Assets ($)",
+        f"Current Assets ({currency_symbol})",
         value=500000 if mode == "Protect Wealth (Rich)" else 1000
     )
 
@@ -94,16 +114,20 @@ with st.sidebar:
     st.subheader("Time Horizon")
     years = st.slider("Projection Horizon (Years)", 5, 50, 30)
 
+    st.subheader("View Mode")
+    view_mode = st.radio("Cash Flow Display", ["Monthly", "Yearly"])
+
 # =========================================================
 # CORE PROJECTION ENGINE
 # =========================================================
 real_rate = (growth - inflation) * (1 - tax)
 monthly_surplus = income - expenses
+display_surplus = monthly_surplus if view_mode == "Monthly" else monthly_surplus * 12
 
 wealth_projection = []
 current_val = assets
 
-for year in range(years + 1):
+for _ in range(years + 1):
     wealth_projection.append(current_val)
     current_val = (current_val + monthly_surplus * 12) * (1 + real_rate)
 
@@ -117,9 +141,20 @@ infl_loss, tax_loss, total_leak = calculate_annual_leakage(
 st.subheader("🧯 Leakage Detector")
 
 c1, c2, c3 = st.columns(3)
-c1.metric("Inflation Loss / Year", f"${infl_loss:,.2f}")
-c2.metric("Tax Drag / Year", f"${tax_loss:,.2f}")
-c3.metric("Total Annual Leakage", f"${total_leak:,.2f}")
+c1.metric("Inflation Loss / Year", money(infl_loss))
+c2.metric("Tax Drag / Year", money(tax_loss))
+c3.metric("Total Annual Leakage", money(total_leak))
+
+# =========================================================
+# CASH FLOW CLARITY
+# =========================================================
+st.divider()
+st.subheader("💰 Cash Flow Clarity")
+
+st.metric(
+    f"Surplus ({view_mode})",
+    money(display_surplus)
+)
 
 # =========================================================
 # OPPORTUNITY COST ENGINE
@@ -128,10 +163,10 @@ st.divider()
 st.subheader("🚀 Opportunity Cost Engine")
 st.caption("This assumes long-term disciplined investing and consistent contributions.")
 
-redirect = st.checkbox("Redirect monthly cash from a liability to an asset")
+redirect = st.checkbox(f"Redirect {view_mode.lower()} cash from a liability to an asset")
 
 monthly_redirect = st.number_input(
-    "Monthly Amount to Redirect ($)",
+    f"Monthly Amount to Redirect ({currency_symbol})",
     min_value=0,
     value=500,
     step=50
@@ -139,13 +174,13 @@ monthly_redirect = st.number_input(
 
 if redirect and monthly_redirect > 0:
     future_val = opportunity_cost(
-        monthly_amount=monthly_redirect,
+        monthly_amount=monthly_redirect if view_mode == "Monthly" else monthly_redirect / 12,
         annual_rate=growth * (1 - tax),
         years=years
     )
     st.metric(
         f"Value of Redirected Cash ({years} Years)",
-        f"${future_val:,.2f}"
+        money(future_val)
     )
 
 # =========================================================
@@ -163,15 +198,23 @@ debts = []
 for i in range(1, 4):
     col1, col2 = st.columns(2)
     with col1:
-        balance = st.number_input(f"Debt {i} Balance ($)", min_value=0, value=0)
+        balance = st.number_input(
+            f"Debt {i} Balance ({currency_symbol})",
+            min_value=0,
+            value=0
+        )
     with col2:
-        rate = st.number_input(f"Debt {i} Interest Rate (%)", min_value=0.0, value=0.0) / 100
+        rate = st.number_input(
+            f"Debt {i} Interest Rate (%)",
+            min_value=0.0,
+            value=0.0
+        ) / 100
 
     if balance > 0 and rate > 0:
         debts.append({"balance": balance, "rate": rate})
 
 monthly_payment = st.number_input(
-    "Total Monthly Debt Payment ($)",
+    f"Total Monthly Debt Payment ({currency_symbol})",
     min_value=0,
     value=1000,
     step=50
@@ -200,7 +243,7 @@ fig.add_trace(go.Scatter(
 ))
 fig.update_layout(
     xaxis_title="Years",
-    yaxis_title="Net Worth ($)",
+    yaxis_title=f"Net Worth ({currency_symbol})",
     template="plotly_white"
 )
 
