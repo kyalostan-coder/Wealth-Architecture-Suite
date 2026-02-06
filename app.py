@@ -90,7 +90,6 @@ def get_cbk_data():
         "inflation": float(latest.get("Inflation Rate (%)", 4.0)) / 100,
         "interest": float(latest.get("91-day T-Bill Rate (%)", 12.0)) / 100,
         "exchange": float(latest.get("KES/USD", 150.0)),
-        # Keep manual inputs for tax, GDP growth, unemployment, debt/GDP
     }
 
 eco_data = get_cbk_data()
@@ -186,4 +185,18 @@ if redirect and monthly_redirect > 0:
 # DEBT ERADICATOR
 # =========================================================
 st.divider()
-st.subheader("⚔️ Debt Erad
+st.subheader("🪓 Debt Eradicator")
+
+method = st.radio("Payoff Strategy", ["Avalanche", "Snowball"])
+st.markdown("### Enter Your Debts")
+
+debts = []
+for i in range(1, 4):
+    col1, col2 = st.columns(2)
+    with col1:
+        balance = st.number_input(f"Debt {i} Balance ({currency_symbol})", min_value=0, value=0)
+    with col2:
+        rate = st.number_input(f"Debt {i} Interest Rate (%)", min_value=0.0, value=0.0, step=0.1) / 100
+
+    if balance > 0 and rate > 0:
+        debts.append({"balance": balance,
