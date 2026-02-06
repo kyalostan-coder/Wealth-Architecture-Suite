@@ -41,12 +41,10 @@ CURRENCIES = {
 def money(value):
     return f"{currency_symbol}{value:,.2f}"
 
-
 def calculate_annual_leakage(assets, tax_rate, inflation_rate):
     inflation_loss = assets * inflation_rate
     tax_loss = assets * tax_rate
     return inflation_loss, tax_loss, inflation_loss + tax_loss
-
 
 def opportunity_cost(monthly_amount, annual_rate, years):
     months = years * 12
@@ -56,7 +54,6 @@ def opportunity_cost(monthly_amount, annual_rate, years):
         value = (value + monthly_amount) * (1 + monthly_rate)
     return value
 
-
 def debt_payoff(debts, monthly_payment, method="avalanche"):
     debts = sorted(
         debts,
@@ -65,20 +62,34 @@ def debt_payoff(debts, monthly_payment, method="avalanche"):
     months = 0
     while any(d["balance"] > 0 for d in debts):
         remaining = monthly_payment
-
         for debt in debts:
             if debt["balance"] > 0 and remaining > 0:
                 pay = min(remaining, debt["balance"])
                 debt["balance"] -= pay
                 remaining -= pay
-
         for debt in debts:
             if debt["balance"] > 0:
                 debt["balance"] *= (1 + debt["rate"] / 12)
-
         months += 1
-
     return months
+
+# =========================================================
+# COUNTRY PRESETS (with live search placeholders)
+# =========================================================
+COUNTRY_PRESETS = {
+    "USA": {"currency": "USD ($)", "growth_query": "current GDP growth rate USA 2026",
+            "tax_query": "current tax rate USA 2026", "inflation_query": "current inflation rate USA 2026"},
+    "UK": {"currency": "GBP (£)", "growth_query": "current GDP growth rate UK 2026",
+           "tax_query": "current tax rate UK 2026", "inflation_query": "current inflation rate UK 2026"},
+    "Kenya": {"currency": "KES (KSh)", "growth_query": "current GDP growth rate Kenya 2026",
+              "tax_query": "current tax rate Kenya 2026", "inflation_query": "current inflation rate Kenya 2026"},
+    "India": {"currency": "INR (₹)", "growth_query": "current GDP growth rate India 2026",
+              "tax_query": "current tax rate India 2026", "inflation_query": "current inflation rate India 2026"},
+    "Nigeria": {"currency": "NGN (₦)", "growth_query": "current GDP growth rate Nigeria 2026",
+                "tax_query": "current tax rate Nigeria 2026", "inflation_query": "current inflation rate Nigeria 2026"},
+    "Eurozone": {"currency": "EUR (€)", "growth_query": "current GDP growth rate Eurozone 2026",
+                 "tax_query": "current tax rate Eurozone 2026", "inflation_query": "current inflation rate Eurozone 2026"}
+}
 
 # =========================================================
 # SIDEBAR INPUTS
@@ -86,7 +97,12 @@ def debt_payoff(debts, monthly_payment, method="avalanche"):
 with st.sidebar:
     st.header("Financial DNA")
 
-    currency_choice = st.selectbox("Currency", list(CURRENCIES.keys()))
+    st.subheader("Country Preset")
+    country = st.selectbox("Select Country", list(COUNTRY_PRESETS.keys()))
+    preset = COUNTRY_PRESETS[country]
+
+    # Currency auto-aligns
+    currency_choice = preset["currency"]
     currency_symbol = CURRENCIES[currency_choice]
 
     mode = st.radio("Primary Objective", ["Protect Wealth (Rich)", "Create Wealth (Poor)"])
@@ -106,9 +122,12 @@ with st.sidebar:
 
     st.divider()
     st.subheader("Economic Variables")
-    growth = st.number_input("Expected Market Growth (%)", min_value=0.0, max_value=100.0, value=8.0, step=0.1) / 100
+
+    # Live search placeholders — in practice, these would call search_web
+    # For demo, we use default values until integrated with search_web
+    growth = st.number_input("Expected Market Growth (%)", min_value=0.0, max_value=100.0, value=5.0, step=0.1) / 100
     tax = st.number_input("Tax Leakage (%)", min_value=0.0, max_value=100.0, value=25.0, step=0.1) / 100
-    inflation = st.number_input("Inflation Rate (%)", min_value=0.0, max_value=100.0, value=4.0, step=0.1) / 100
+    inflation = st.number_input("Inflation Rate (%)", min_value=0.0, max_value=100.0, value=3.0, step=0.1) / 100
 
     st.divider()
     st.subheader("Time Horizon")
@@ -207,47 +226,3 @@ for i in range(1, 4):
         rate = st.number_input(
             f"Debt {i} Interest Rate (%)",
             min_value=0.0,
-            value=0.0,
-            step=0.1
-        ) / 100
-
-    if balance > 0 and rate > 0:
-        debts.append({"balance": balance, "rate": rate})
-
-monthly_payment = st.number_input(
-    f"Total Monthly Debt Payment ({currency_symbol})",
-    min_value=0,
-    value=1000,
-    step=50
-)
-
-if debts and monthly_payment > 0:
-    months_to_zero = debt_payoff(
-        debts=debts,
-        monthly_payment=monthly_payment,
-        method=method.lower()
-    )
-    st.metric("Months to Become Debt-Free", f"{months_to_zero} months")
-
-# =========================================================
-# WEALTH CHART
-# =========================================================
-st.divider()
-st.subheader("📈 Wealth Accumulation Curve")
-
-fig = go.Figure()
-fig.add_trace(go.Scatter(
-    x=list(range(years + 1)),
-    y=wealth_projection,
-    fill="tozeroy",
-    line=dict(color="#1f77b4")
-))
-fig.update_layout(
-    xaxis_title="Years",
-    yaxis_title=f"Net Worth ({currency_symbol})",
-    template="plotly_white"
-)
-
-st.plotly_chart(fig, use_container_width=True)
-
-st.success("This system uses first-principles math to eliminate financial blindness.")
