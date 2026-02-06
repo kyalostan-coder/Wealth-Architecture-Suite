@@ -84,13 +84,35 @@ def get_cbk_data():
     # Example CBK monthly indicators file (replace with current link)
     url = "https://www.centralbank.go.ke"
     response = requests.get(url)
-    df = pd.read_excel(BytesIO(response.content))
-    latest = df.iloc[-1]  # most recent month
-    return {
-        "inflation": float(latest.get("Inflation Rate (%)", 4.0)) / 100,
-        "interest": float(latest.get("91-day T-Bill Rate (%)", 12.0)) / 100,
-        "exchange": float(latest.get("KES/USD", 150.0)),
-    }
+
+    # --- ADDED: Check if the request was successful ---
+    if response.status_code != 200:
+        st.error(f"Failed to fetch data from CBK. Status code: {response.status_code}")
+        # Return default values gracefully if fetch fails
+        return {
+            "inflation": 4.0 / 100,
+            "interest": 12.0 / 100,
+            "exchange": 150.0,
+        }
+
+    # --- ADDED: Error handling for pandas read_excel operation ---
+    try:
+        df = pd.read_excel(BytesIO(response.content))
+        latest = df.iloc[-1]  # most recent month
+        return {
+            "inflation": float(latest.get("Inflation Rate (%)", 4.0)) / 100,
+            "interest": float(latest.get("91-day T-Bill Rate (%)", 12.0)) / 100,
+            "exchange": float(latest.get("KES/USD", 150.0)),
+        }
+    except ValueError as e:
+        st.error(f"Error reading Excel file: {e}")
+        st.info("Please ensure the 'openpyxl' library is installed and the Excel file format is correct.")
+        # Return default values gracefully if read fails
+        return {
+            "inflation": 4.0 / 100,
+            "interest": 12.0 / 100,
+            "exchange": 150.0,
+        }
 
 eco_data = get_cbk_data()
 
