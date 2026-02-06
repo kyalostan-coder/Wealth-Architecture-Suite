@@ -1,6 +1,6 @@
 import streamlit as st
 import plotly.graph_objects as go
-import plotly.express as px # Import Plotly Express
+import plotly.express as px
 import pandas as pd
 import requests
 from io import BytesIO
@@ -154,22 +154,6 @@ for _ in range(years + 1):
     current_val = (current_val + monthly_surplus * 12) * (1 + real_rate)
 
 # =========================================================
-# WEALTH PROJECTION VISUALIZATION (New Section)
-# =========================================================
-st.divider()
-st.subheader("📈 Wealth Projection")
-# Create a DataFrame for Plotly
-df_projection = pd.DataFrame({
-    'Year': range(years + 1),
-    'Wealth': wealth_projection
-})
-# Create an interactive Plotly line chart
-fig = px.line(df_projection, x='Year', y='Wealth', title='Projected Wealth Over Time')
-fig.update_traces(mode='lines+markers') # Add markers to the line
-st.plotly_chart(fig, use_container_width=True)
-
-
-# =========================================================
 # LEAKAGE DETECTOR
 # =========================================================
 infl_loss, tax_loss, interest_drag, total_leak = calculate_annual_leakage(
@@ -225,3 +209,18 @@ for i in range(1, 4):
     
     if balance > 0 and rate > 0:
         debts.append({"balance": balance, "rate": rate})
+
+# =========================================================
+# WEALTH PROJECTION VISUALIZATION (Moved to the end)
+# =========================================================
+st.divider()
+st.subheader("📈 Wealth Projection")
+# Create a DataFrame for Plotly
+df_projection = pd.DataFrame({
+    'Year': range(years + 1),
+    'Wealth': wealth_projection
+})
+# Create an interactive Plotly line chart
+fig = px.line(df_projection, x='Year', y='Wealth', title='Projected Wealth Over Time')
+fig.update_traces(mode='lines+markers') # Add markers to the line
+st.plotly_chart(fig, use_container_width=True)
