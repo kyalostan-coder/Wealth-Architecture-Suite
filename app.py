@@ -1,5 +1,6 @@
 import streamlit as st
 import plotly.graph_objects as go
+import plotly.express as px # Import Plotly Express
 import pandas as pd
 import requests
 from io import BytesIO
@@ -85,15 +86,12 @@ def get_cbk_data():
     response = requests.get(url)
     content = BytesIO(response.content)
 
-    # Detect file type by extension
-    if url.endswith(".xlsx"):
+    try:
+        # Use pandas read_excel to automatically detect and read the file
         df = pd.read_excel(content, engine="openpyxl")
-    elif url.endswith(".xls"):
-        df = pd.read_excel(content, engine="xlrd")
-    elif url.endswith(".csv"):
-        df = pd.read_csv(content)
-    else:
-        st.error("Unsupported CBK file format.")
+    except Exception as e:
+        # Fallback if automatic detection fails, returning default data
+        st.error(f"Error reading CBK file: {e}")
         return {"inflation": 0.04, "interest": 0.12, "exchange": 150.0}
 
     latest = df.iloc[-1]
@@ -156,6 +154,22 @@ for _ in range(years + 1):
     current_val = (current_val + monthly_surplus * 12) * (1 + real_rate)
 
 # =========================================================
+# WEALTH PROJECTION VISUALIZATION (New Section)
+# =========================================================
+st.divider()
+st.subheader("📈 Wealth Projection")
+# Create a DataFrame for Plotly
+df_projection = pd.DataFrame({
+    'Year': range(years + 1),
+    'Wealth': wealth_projection
+})
+# Create an interactive Plotly line chart
+fig = px.line(df_projection, x='Year', y='Wealth', title='Projected Wealth Over Time')
+fig.update_traces(mode='lines+markers') # Add markers to the line
+st.plotly_chart(fig, use_container_width=True)
+
+
+# =========================================================
 # LEAKAGE DETECTOR
 # =========================================================
 infl_loss, tax_loss, interest_drag, total_leak = calculate_annual_leakage(
@@ -205,7 +219,6 @@ debts = []
 for i in range(1, 4):
     col1, col2 = st.columns(2)
     with col1:
-        # Corrected line
         balance = st.number_input(f"Debt {i} Balance", value=0.0, step=100.0)
     with col2:
         rate = st.number_input(f"Debt {i} Rate (%)", value=0.0, step=0.1) / 100
