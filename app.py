@@ -106,13 +106,13 @@ with st.sidebar:
 
     st.divider()
     st.subheader("Economic Variables")
-    growth = st.slider("Expected Market Growth (%)", 0, 15, 8) / 100
-    tax = st.slider("Tax Leakage (%)", 0, 50, 25) / 100
-    inflation = st.slider("Inflation Rate (%)", 0, 15, 4) / 100
+    growth = st.number_input("Expected Market Growth (%)", min_value=0.0, max_value=100.0, value=8.0, step=0.1) / 100
+    tax = st.number_input("Tax Leakage (%)", min_value=0.0, max_value=100.0, value=25.0, step=0.1) / 100
+    inflation = st.number_input("Inflation Rate (%)", min_value=0.0, max_value=100.0, value=4.0, step=0.1) / 100
 
     st.divider()
     st.subheader("Time Horizon")
-    years = st.slider("Projection Horizon (Years)", 5, 50, 30)
+    years = st.number_input("Projection Horizon (Years)", min_value=1, max_value=100, value=30, step=1)
 
     st.subheader("View Mode")
     view_mode = st.radio("Cash Flow Display", ["Monthly", "Yearly"])
@@ -207,7 +207,8 @@ for i in range(1, 4):
         rate = st.number_input(
             f"Debt {i} Interest Rate (%)",
             min_value=0.0,
-            value=0.0
+            value=0.0,
+            step=0.1
         ) / 100
 
     if balance > 0 and rate > 0:
