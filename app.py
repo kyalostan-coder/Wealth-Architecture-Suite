@@ -81,38 +81,27 @@ def debt_payoff(debts, monthly_payment, method="avalanche"):
 # =========================================================
 @st.cache_data
 def get_cbk_data():
-    # Example CBK monthly indicators file (replace with current link)
-    url = "https://www.centralbank.go.ke"
+    url = "https://www.centralbank.go.ke/wp-content/uploads/2025/12/Monthly-Economic-Indicators.xlsx"
     response = requests.get(url)
+    content = BytesIO(response.content)
 
-    # --- ADDED: Check if the request was successful ---
-    if response.status_code != 200:
-        st.error(f"Failed to fetch data from CBK. Status code: {response.status_code}")
-        # Return default values gracefully if fetch fails
-        return {
-            "inflation": 4.0 / 100,
-            "interest": 12.0 / 100,
-            "exchange": 150.0,
-        }
+    # Detect file type by extension
+    if url.endswith(".xlsx"):
+        df = pd.read_excel(content, engine="openpyxl")
+    elif url.endswith(".xls"):
+        df = pd.read_excel(content, engine="xlrd")
+    elif url.endswith(".csv"):
+        df = pd.read_csv(content)
+    else:
+        st.error("Unsupported CBK file format.")
+        return {"inflation": 0.04, "interest": 0.12, "exchange": 150.0}
 
-    # --- ADDED: Error handling for pandas read_excel operation ---
-    try:
-        df = pd.read_excel(BytesIO(response.content))
-        latest = df.iloc[-1]  # most recent month
-        return {
-            "inflation": float(latest.get("Inflation Rate (%)", 4.0)) / 100,
-            "interest": float(latest.get("91-day T-Bill Rate (%)", 12.0)) / 100,
-            "exchange": float(latest.get("KES/USD", 150.0)),
-        }
-    except ValueError as e:
-        st.error(f"Error reading Excel file: {e}")
-        st.info("Please ensure the 'openpyxl' library is installed and the Excel file format is correct.")
-        # Return default values gracefully if read fails
-        return {
-            "inflation": 4.0 / 100,
-            "interest": 12.0 / 100,
-            "exchange": 150.0,
-        }
+    latest = df.iloc[-1]
+    return {
+        "inflation": float(latest.get("Inflation Rate (%)", 4.0)) / 100,
+        "interest": float(latest.get("91-day T-Bill Rate (%)", 12.0)) / 100,
+        "exchange": float(latest.get("KES/USD", 150.0)),
+    }
 
 eco_data = get_cbk_data()
 
@@ -216,9 +205,4 @@ debts = []
 for i in range(1, 4):
     col1, col2 = st.columns(2)
     with col1:
-        balance = st.number_input(f"Debt {i} Balance ({currency_symbol})", min_value=0, value=0)
-    with col2:
-        rate = st.number_input(f"Debt {i} Interest Rate (%)", min_value=0.0, value=0.0, step=0.1) / 100
-
-    if balance > 0 and rate > 0:
-        debts.append({"balance": balance, "rate": rate})
+        balance = st.number_input(f"Debt {
