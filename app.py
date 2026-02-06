@@ -81,7 +81,7 @@ def debt_payoff(debts, monthly_payment, method="avalanche"):
 # =========================================================
 @st.cache_data
 def get_cbk_data():
-    url = "https://www.centralbank.go.ke/wp-content/uploads/2025/12/Monthly-Economic-Indicators.xlsx"
+    url = "https://www.centralbank.go.ke"
     response = requests.get(url)
     content = BytesIO(response.content)
 
@@ -205,4 +205,10 @@ debts = []
 for i in range(1, 4):
     col1, col2 = st.columns(2)
     with col1:
-        balance = st.number_input(f"Debt {
+        # Corrected line
+        balance = st.number_input(f"Debt {i} Balance", value=0.0, step=100.0)
+    with col2:
+        rate = st.number_input(f"Debt {i} Rate (%)", value=0.0, step=0.1) / 100
+    
+    if balance > 0 and rate > 0:
+        debts.append({"balance": balance, "rate": rate})
