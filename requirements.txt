@@ -1,3 +1,4 @@
 streamlit
 plotly
 pandas
+pip freeze > requirements.txt
