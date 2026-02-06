@@ -1,117 +1,103 @@
 import streamlit as st
 import plotly.express as px
 import pandas as pd
-import requests
-from datetime import datetime, timedelta
+import numpy as np
 
 # =========================================================
-# 1. PAGE CONFIGURATION & THEME
+# 1. PAGE SETUP
 # =========================================================
-st.set_page_config(
-    page_title="Wealth Architect Pro",
-    page_icon="💹",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="Wealth Reality Suite", layout="wide")
 
-# Custom CSS for "Premium" Dashboard Look
+# Professional Dashboard Styling
 st.markdown("""
     <style>
-    .metric-card { background-color: #ffffff; padding: 20px; border-radius: 10px; border-left: 5px solid #007bff; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
-    [data-testid="stMetricValue"] { font-size: 28px; font-weight: bold; color: #1e1e1e; }
+    [data-testid="stMetricValue"] { font-size: 24px; color: #2ecc71; }
+    .main { background-color: #f8f9fa; }
     </style>
 """, unsafe_allow_html=True)
 
 # =========================================================
-# 2. CACHED DATA ENGINE (Official Property)
-# =========================================================
-@st.cache_data(ttl=3600)
-def fetch_live_market_data():
-    """Simulates/Fetches official 2026 data. Caching prevents lag."""
-    url = "https://www.centralbank.go.ke"
-    # Fallback to 2026 averages if live site is unresponsive
-    defaults = {"inflation": 0.048, "KESONIA": 0.082, "USD_KES": 128.50}
-    try:
-        # Mocking the successful scrape return
-        return defaults
-    except:
-        return defaults
-
-market_data = fetch_live_market_data()
-
-# =========================================================
-# 3. SIDEBAR CONTROLS (User Interaction Property)
+# 2. SIDEBAR - REALISTIC INPUTS
 # =========================================================
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/2452/2452144.png", width=80)
-    st.title("User Profile")
+    st.title("🛠️ Project Parameters")
     
-    # User Inputs organized into an Expander to save space
-    with st.expander("💼 Cash Flow Settings", expanded=True):
-        income = st.number_input("Monthly Income (KSh)", value=150000, step=5000)
-        expenses = st.number_input("Monthly Expenses (KSh)", value=90000, step=5000)
-        st.info(f"Savings Rate: {((income-expenses)/income)*100:.1f}%")
-        
-    with st.expander("📈 Strategy Parameters", expanded=False):
-        growth_target = st.slider("Target Return (%)", 5, 25, 12) / 100
-        horizon = st.slider("Time Horizon (Years)", 1, 40, 20)
-        tax_bracket = st.selectbox("Tax Logic", ["Standard WHT (10%)", "Corporate (30%)", "Tax-Free (MFs)"])
+    st.subheader("Monthly Cash Flow")
+    monthly_savings = st.number_input("Monthly Savings (KSh)", value=20000, step=1000)
+    initial_capital = st.number_input("Starting Balance (KSh)", value=0)
+    
+    st.subheader("Market Expectations")
+    # Realistically, MMFs in Kenya range from 12-16%
+    annual_yield = st.slider("Annual Yield (%)", 0.0, 20.0, 15.0) / 100
+    inflation = st.slider("Inflation Rate (%)", 0.0, 10.0, 5.0) / 100
+    
+    years = st.number_input("Timeline (Years)", min_value=1, value=5)
 
 # =========================================================
-# 4. MAIN DASHBOARD UI (Layout Property)
+# 3. THE "REALITY CHECK" ENGINE
+# =========================================================
+# Using the Future Value of an Annuity Formula
+# FV = PMT * (((1 + r/n)^(nt) - 1) / (r/n))
+def calculate_growth(pmt, r, t, pv):
+    months = t * 12
+    monthly_rate = r / 12
+    if monthly_rate == 0:
+        return [pv + (pmt * m) for m in range(months + 1)]
+    
+    balances = []
+    for m in range(months + 1):
+        # Compound the initial balance + the monthly contributions
+        val = pv * (1 + monthly_rate)**m + pmt * (((1 + monthly_rate)**m - 1) / monthly_rate)
+        balances.append(val)
+    return balances
+
+# Calculations
+raw_balances = calculate_growth(monthly_savings, annual_yield, years, initial_capital)
+total_deposited = initial_capital + (monthly_savings * years * 12)
+final_wealth = raw_balances[-1]
+interest_earned = final_wealth - total_deposited
+
+# =========================================================
+# 4. DASHBOARD LAYOUT
 # =========================================================
 st.title("🏛️ Wealth Architecture Suite")
-st.caption(f"System Date: {datetime.now().strftime('%Y-%m-%d')} | Data Source: Official CBK Portal")
+st.info(f"Goal: See how long it actually takes to hit KSh 1,000,000 with KSh {monthly_savings:,.0f}/month.")
 
-# KPI Rows (Metric Cards Property)
-col1, col2, col3, col4 = st.columns(4)
+# KPI Metrics
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Final Balance", f"KSh {final_wealth:,.0f}")
+c2.metric("Total Deposits", f"KSh {total_deposited:,.0f}")
+c3.metric("Interest Gained", f"KSh {interest_earned:,.0f}")
+c4.metric("Real Yield (Adj.)", f"{(annual_yield - inflation)*100:.1f}%")
 
-with col1:
-    st.metric("Inflation", f"{market_data['inflation']*100:.1f}%", "-0.2%", help="Official CBK Rate")
-with col2:
-    st.metric("KESONIA", f"{market_data['KESONIA']*100:.1f}%", "+0.05%", help="Risk-Free Rate")
-with col3:
-    st.metric("Monthly Surplus", f"KSh {income - expenses:,.0f}")
-with col4:
-    st.metric("USD/KES", f"KSh {market_data['USD_KES']:.2f}")
-
-# =========================================================
-# 5. DATA PROCESSING & VISUALIZATION (Analytics Property)
-# =========================================================
+# Realistic Analysis
 st.divider()
+col_left, col_right = st.columns([2, 1])
 
-# Calculation Logic
-surplus = income - expenses
-real_growth = growth_target - market_data['inflation']
-years = list(range(horizon + 1))
-wealth_values = [1000000 * ((1 + real_growth)**y) + (surplus * 12 * ((1 + real_growth)**y - 1) / real_growth if real_growth != 0 else y * surplus * 12) for y in years]
-
-# Create Dataframe for charts
-df = pd.DataFrame({"Year": years, "Projected Wealth": wealth_values})
-
-# Tabs for different views (Clarity Property)
-tab1, tab2, tab3 = st.tabs(["📈 Wealth Forecast", "🛡️ Leakage Analysis", "📜 Data Table"])
-
-with tab1:
-    st.subheader("Wealth Compounding Trajectory")
-    fig = px.area(df, x="Year", y="Projected Wealth", 
-                  title="Inflation-Adjusted Growth Path",
-                  color_discrete_sequence=['#2ecc71'])
-    fig.update_layout(hovermode="x unified")
+with col_left:
+    # Charting the path
+    df = pd.DataFrame({
+        "Month": range(len(raw_balances)),
+        "Wealth": raw_balances,
+        "Deposits": [initial_capital + (monthly_savings * m) for m in range(len(raw_balances))]
+    })
+    
+    fig = px.area(df, x="Month", y=["Wealth", "Deposits"], 
+                  title="Wealth vs. Pure Savings",
+                  labels={"value": "Amount (KSh)", "variable": "Type"},
+                  color_discrete_sequence=['#2ecc71', '#bdc3c7'])
     st.plotly_chart(fig, use_container_width=True)
 
-with tab2:
-    # Breakdown of "Where the money goes"
-    st.subheader("Annual Wealth Erosion")
-    leakage_data = pd.DataFrame({
-        "Category": ["Inflation Loss", "Est. Tax Drag", "Expenses"],
-        "Amount": [1000000 * market_data['inflation'], (surplus*12)*0.10, expenses * 12]
-    })
-    fig_pie = px.pie(leakage_data, values='Amount', names='Category', hole=.4, color_discrete_sequence=px.colors.sequential.RdBu)
-    st.plotly_chart(fig_pie)
+with col_right:
+    st.subheader("The 1 Million Milestone")
+    # Finding when we hit 1M
+    months_to_1m = next((i for i, v in enumerate(raw_balances) if v >= 1000000), None)
+    
+    if months_to_1m:
+        st.success(f"✔️ You hit 1 Million in **{months_to_1m} months**")
+        st.write(f"That's approximately **{months_to_1m/12:.1f} years**.")
+    else:
+        st.error("❌ You won't hit 1 Million in this timeframe.")
+        st.write("Try increasing the years or your monthly savings.")
 
-with tab3:
-    st.subheader("Detailed Year-by-Year Breakdown")
-    st.dataframe(df.style.format({"Projected Wealth": "KSh {:,.2f}"}), use_container_width=True)
-
-st.success("Dashboard successfully synchronized with live 2026 benchmarks.")
+st.warning("⚠️ **Reality Check:** To hit 1M in exactly 12 months with 0 starting balance, you would need to save roughly **KSh 78,000 per month** at 15% interest.")
