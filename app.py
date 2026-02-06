@@ -1,5 +1,4 @@
 import streamlit as st
-import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
 import requests
@@ -11,174 +10,137 @@ from io import BytesIO
 st.set_page_config(page_title="Wealth Architecture Suite", page_icon="🏛️", layout="wide")
 
 # =========================================================
-# CUSTOM CSS
+# LIVE OFFICIAL DATA FETCHING (CBK)
+# =========================================================
+@st.cache_data(ttl=3600)  # Refresh data every hour
+def get_official_cbk_data():
+    """
+    Scrapes official data from the Central Bank of Kenya website.
+    """
+    url = "https://www.centralbank.go.ke"
+    # Headers are necessary to prevent the website from blocking the request
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    
+    # Fallback default values
+    data = {"inflation": 0.045, "interest": 0.076, "exchange": 129.0}
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        if response.status_code == 200:
+            # pd.read_html looks for <table> tags in the website HTML
+            tables = pd.read_html(response.text)
+            
+            for df in tables:
+                df_content = df.to_string()
+                
+                # Extract Inflation
+                if "Inflation Rate" in df_content:
+                    # Finds the row with Inflation and gets the next column value
+                    row = df[df[0].str.contains("Inflation Rate", na=False)]
+                    data["inflation"] = float(row[1].values[0].replace('%', '')) / 100
+                
+                # Extract 91-Day T-Bill (Risk-free interest rate)
+                if "91-Day T-Bill" in df_content:
+                    row = df[df[0].str.contains("91-Day T-Bill", na=False)]
+                    data["interest"] = float(row[1].values[0].replace('%', '')) / 100
+                
+                # Extract USD Exchange Rate
+                if "US DOLLAR" in df_content:
+                    # Usually found in the 'Daily KES Exchange Rates' table
+                    row = df[df[0].str.contains("US DOLLAR", na=False)]
+                    data["exchange"] = float(row[1].values[0])
+                    
+        return data
+    except Exception as e:
+        # If the website structure changes or is down, we use safety defaults
+        return data
+
+# Load the data
+eco_data = get_official_cbk_data()
+
+# =========================================================
+# UI STYLING & SIDEBAR
 # =========================================================
 st.markdown("""
 <style>
 .main { background-color: #f5f7f9; }
-.stMetric { background-color: #ffffff; padding: 20px; border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+.stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #e0e0e0; }
 </style>
 """, unsafe_allow_html=True)
 
-# =========================================================
-# TITLE
-# =========================================================
 st.title("🏛️ Wealth Architecture Suite")
-st.caption("Strategic Engineering for Wealth Protection and Creation")
+st.caption("Strategic Engineering for Wealth Protection and Creation — Live CBK Data Sync")
 
-# =========================================================
-# CURRENCY CONFIG
-# =========================================================
-CURRENCIES = {
-    "USD ($)": "$", "EUR (€)": "€", "GBP (£)": "£",
-    "KES (KSh)": "KSh ", "INR (₹)": "₹", "NGN (₦)": "₦"
-}
-
-# =========================================================
-# FUNCTIONS — CORE ENGINE
-# =========================================================
-def money(value):
-    return f"{currency_symbol}{value:,.2f}"
-
-def calculate_annual_leakage(assets, tax_rate, inflation_rate, interest_rate=0.0):
-    inflation_loss = assets * inflation_rate
-    tax_loss = assets * tax_rate
-    interest_drag = assets * interest_rate
-    return inflation_loss, tax_loss, interest_drag, inflation_loss + tax_loss + interest_drag
-
-def opportunity_cost(monthly_amount, annual_rate, years):
-    months = years * 12
-    monthly_rate = annual_rate / 12
-    if monthly_rate == 0: return monthly_amount * months
-    return monthly_amount * ((1 + monthly_rate)**months - 1) / monthly_rate
-
-# =========================================================
-# UNIVERSAL FILE LOADER (Fixes the "Not a Zip" Error)
-# =========================================================
-def load_economic_data(uploaded_file):
-    # Default values if no file is uploaded
-    defaults = {"inflation": 0.05, "interest": 0.12, "exchange": 129.0}
-    
-    if uploaded_file is None:
-        return defaults
-
-    try:
-        fname = uploaded_file.name.lower()
-        if fname.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
-        elif fname.endswith(('.xlsx', '.xls')):
-            # read_excel works here because we know it's a real Excel file
-            df = pd.read_excel(uploaded_file)
-        elif fname.endswith(('.html', '.htm')):
-            # Properly handles HTML tables (like a saved CBK page)
-            tables = pd.read_html(uploaded_file)
-            df = tables[0]
-        elif fname.endswith('.json'):
-            df = pd.read_json(uploaded_file)
-        else:
-            st.error("Unsupported file format.")
-            return defaults
-
-        # Normalize column names for flexible searching
-        df.columns = [str(c).strip().lower() for c in df.columns]
-        latest = df.iloc[-1]
-
-        # Helper to find columns by keyword
-        def get_val(keyword, default):
-            cols = [c for c in df.columns if keyword in c]
-            if cols:
-                val = str(latest[cols[0]]).replace('%', '')
-                return float(val) / 100 if keyword != 'kes' else float(val)
-            return default
-
-        return {
-            "inflation": get_val("inflation", defaults["inflation"]),
-            "interest": get_val("interest", defaults["interest"]),
-            "exchange": get_val("kes", defaults["exchange"])
-        }
-    except Exception as e:
-        st.error(f"Error parsing file: {e}")
-        return defaults
-
-# =========================================================
-# SIDEBAR INPUTS
-# =========================================================
 with st.sidebar:
     st.header("Financial DNA")
     
-    # Data Input Method
-    data_source = st.radio("Economic Data Source", ["Manual/Default", "Upload File"])
-    
-    if data_source == "Upload File":
-        uploaded_file = st.file_uploader("Upload CSV, Excel, or HTML", type=["csv", "xlsx", "xls", "html", "json"])
-        eco_data = load_economic_data(uploaded_file)
-    else:
-        eco_data = {"inflation": 0.05, "interest": 0.12, "exchange": 129.0}
-
+    # Currency Settings
+    CURRENCIES = {"USD ($)": "$", "KES (KSh)": "KSh ", "EUR (€)": "€", "GBP (£)": "£"}
     currency_choice = st.selectbox("Currency", list(CURRENCIES.keys()))
-    currency_symbol = CURRENCIES[currency_choice]
-
-    mode = st.radio("Primary Objective", ["Protect Wealth (Rich)", "Create Wealth (Poor)"])
-
-    income = st.number_input(f"Monthly Income ({currency_symbol})", value=10000 if mode == "Protect Wealth (Rich)" else 3000)
-    expenses = st.number_input(f"Monthly Expenses ({currency_symbol})", value=4000 if mode == "Protect Wealth (Rich)" else 2500)
-    assets = st.number_input(f"Current Assets ({currency_symbol})", value=500000 if mode == "Protect Wealth (Rich)" else 1000)
+    symbol = CURRENCIES[currency_choice]
 
     st.divider()
-    st.subheader("Economic Variables")
+    st.subheader("Official Economic Rates")
+    # Users can see official rates and tweak them if they have better local data
+    inf_rate = st.number_input("Inflation (%)", value=eco_data['inflation']*100, step=0.01) / 100
+    int_rate = st.number_input("91-Day T-Bill (%)", value=eco_data['interest']*100, step=0.01) / 100
+    ex_rate = st.number_input("USD/KES Exchange", value=eco_data['exchange'])
     
-    # Allow manual override even if file is uploaded
-    inf_rate = st.number_input("Inflation Rate (%)", value=eco_data['inflation']*100) / 100
-    int_rate = st.number_input("Interest Rate (%)", value=eco_data['interest']*100) / 100
-    exc_rate = st.number_input("Exchange Rate (Local/USD)", value=eco_data['exchange'])
-
-    growth = st.number_input("Expected Market Growth (%)", value=8.0) / 100
-    tax = st.number_input("Tax Leakage (%)", value=25.0) / 100
-    years = st.number_input("Projection Horizon (Years)", min_value=1, max_value=100, value=20)
-    view_mode = st.radio("Cash Flow Display", ["Monthly", "Yearly"])
+    st.divider()
+    mode = st.radio("Objective", ["Wealth Creation", "Wealth Protection"])
+    income = st.number_input(f"Monthly Income ({symbol})", value=50000)
+    expenses = st.number_input(f"Monthly Expenses ({symbol})", value=30000)
+    assets = st.number_input(f"Starting Assets ({symbol})", value=100000)
+    years = st.slider("Time Horizon (Years)", 1, 40, 20)
 
 # =========================================================
-# PROJECTION LOGIC
+# CORE MATH & LOGIC
 # =========================================================
-real_rate = (growth * (1 - tax)) - inf_rate
+def money(val): return f"{symbol}{val:,.2f}"
+
 monthly_surplus = income - expenses
-display_surplus = monthly_surplus if view_mode == "Monthly" else monthly_surplus * 12
+growth_rate = 0.10  # Assumed market growth (e.g., S&P 500 or NSE Index)
+real_return_rate = growth_rate - inf_rate
 
-wealth_projection = []
-current_val = assets
-for _ in range(years + 1):
-    wealth_projection.append(max(0, current_val))
-    current_val = (current_val + monthly_surplus * 12) * (1 + real_rate)
+# Calculate Projection
+wealth_data = []
+current_wealth = assets
+for year in range(years + 1):
+    wealth_data.append({"Year": year, "Wealth": current_wealth})
+    current_wealth = (current_wealth + (monthly_surplus * 12)) * (1 + real_return_rate)
+
+df_wealth = pd.DataFrame(wealth_data)
 
 # =========================================================
-# UI DISPLAY
+# DASHBOARD LAYOUT
 # =========================================================
-# 1. Leakage Detector
-st.subheader("🧯 Leakage Detector")
-infl_loss, tax_loss, interest_drag, total_leak = calculate_annual_leakage(assets, tax, inf_rate, int_rate)
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Inflation Loss/Yr", money(infl_loss))
-c2.metric("Tax Drag/Yr", money(tax_loss))
-c3.metric("Interest Drag/Yr", money(interest_drag))
-c4.metric("Total Annual Leakage", money(total_leak))
+# Metric Row
+c1, c2, c3 = st.columns(3)
+c1.metric("Official Inflation", f"{inf_rate*100:.2f}%", help="Pulled from CBK")
+c2.metric("Official T-Bill Rate", f"{int_rate*100:.2f}%", help="91-Day benchmark")
+c3.metric("Monthly Surplus", money(monthly_surplus))
 
-# 2. Wealth Chart
+# Leakage Section
 st.divider()
-st.subheader("📈 Wealth Projection")
-df_projection = pd.DataFrame({'Year': range(years + 1), 'Wealth': wealth_projection})
-fig = px.line(df_projection, x='Year', y='Wealth', title=f'Wealth Forecast over {years} Years')
-fig.update_traces(line_color='#2ecc71', fill='tozeroy') 
+st.subheader("🧯 Wealth Leakage (Annual)")
+col1, col2 = st.columns(2)
+annual_inf_loss = assets * inf_rate
+opp_cost_lost = (monthly_surplus * 12) * growth_rate
+
+with col1:
+    st.write(f"**Inflation Erosion:** {money(annual_inf_loss)}")
+    st.caption("The amount of purchasing power your idle cash loses every year.")
+with col2:
+    st.write(f"**Uninvested Opportunity Cost:** {money(opp_cost_lost)}")
+    st.caption("Potential gains lost if your surplus isn't put into productive assets.")
+
+# Visualization
+st.divider()
+st.subheader("📈 Wealth Trajectory (Adjusted for Inflation)")
+fig = px.area(df_wealth, x="Year", y="Wealth", title="Wealth Projection")
+fig.update_traces(line_color='#1f77b4')
 st.plotly_chart(fig, use_container_width=True)
 
-# 3. Opportunity Cost
-st.divider()
-st.subheader("🚀 Opportunity Cost Engine")
-col_a, col_b = st.columns(2)
-with col_a:
-    monthly_redirect = st.number_input(f"Monthly Amount to Redirect ({currency_symbol})", value=500)
-with col_b:
-    future_val = opportunity_cost(monthly_redirect, growth * (1-tax), years)
-    st.metric(f"Value of Redirected Cash ({years} Years)", money(future_val))
-
-st.success("Analysis Complete. Adjust parameters in the sidebar to stress-test your strategy.")
+st.info("💡 Tip: If your 'Real Return Rate' is negative (Inflation > Growth), your line will curve downwards. Focus on assets that outpace official inflation.")
