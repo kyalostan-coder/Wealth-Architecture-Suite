@@ -31,12 +31,8 @@ st.caption("Strategic Engineering for Wealth Protection and Creation")
 # CURRENCY CONFIG
 # =========================================================
 CURRENCIES = {
-    "USD ($)": "$",
-    "EUR (€)": "€",
-    "GBP (£)": "£",
-    "KES (KSh)": "KSh ",
-    "INR (₹)": "₹",
-    "NGN (₦)": "₦"
+    "USD ($)": "$", "EUR (€)": "€", "GBP (£)": "£",
+    "KES (KSh)": "KSh ", "INR (₹)": "₹", "NGN (₦)": "₦"
 }
 
 # =========================================================
@@ -54,173 +50,135 @@ def calculate_annual_leakage(assets, tax_rate, inflation_rate, interest_rate=0.0
 def opportunity_cost(monthly_amount, annual_rate, years):
     months = years * 12
     monthly_rate = annual_rate / 12
-    if monthly_rate == 0:
-        return monthly_amount * months
+    if monthly_rate == 0: return monthly_amount * months
     return monthly_amount * ((1 + monthly_rate)**months - 1) / monthly_rate
 
-def debt_payoff(debts, monthly_payment, method="avalanche"):
-    debts = sorted(
-        debts,
-        key=lambda x: x["balance"] if method == "snowball" else -x["rate"]
-    )
-    months = 0
-    while any(d["balance"] > 0 for d in debts) and months < 1000:
-        remaining = monthly_payment
-        for debt in debts:
-            if debt["balance"] > 0 and remaining > 0:
-                pay = min(remaining, debt["balance"])
-                debt["balance"] -= pay
-                remaining -= pay
-        for debt in debts:
-            if debt["balance"] > 0:
-                debt["balance"] *= (1 + debt["rate"] / 12)
-        months += 1
-    return months
-
 # =========================================================
-# ECONOMIC DATA FETCHER (CBK)
+# UNIVERSAL FILE LOADER (Fixes the "Not a Zip" Error)
 # =========================================================
-@st.cache_data
-def get_cbk_data():
-    url = "https://www.centralbank.go.ke"
-    response = requests.get(url)
-    content = BytesIO(response.content)
+def load_economic_data(uploaded_file):
+    # Default values if no file is uploaded
+    defaults = {"inflation": 0.05, "interest": 0.12, "exchange": 129.0}
+    
+    if uploaded_file is None:
+        return defaults
 
     try:
-        # Use pandas read_excel to automatically detect and read the file
-        df = pd.read_excel(content, engine="openpyxl")
+        fname = uploaded_file.name.lower()
+        if fname.endswith('.csv'):
+            df = pd.read_csv(uploaded_file)
+        elif fname.endswith(('.xlsx', '.xls')):
+            # read_excel works here because we know it's a real Excel file
+            df = pd.read_excel(uploaded_file)
+        elif fname.endswith(('.html', '.htm')):
+            # Properly handles HTML tables (like a saved CBK page)
+            tables = pd.read_html(uploaded_file)
+            df = tables[0]
+        elif fname.endswith('.json'):
+            df = pd.read_json(uploaded_file)
+        else:
+            st.error("Unsupported file format.")
+            return defaults
+
+        # Normalize column names for flexible searching
+        df.columns = [str(c).strip().lower() for c in df.columns]
+        latest = df.iloc[-1]
+
+        # Helper to find columns by keyword
+        def get_val(keyword, default):
+            cols = [c for c in df.columns if keyword in c]
+            if cols:
+                val = str(latest[cols[0]]).replace('%', '')
+                return float(val) / 100 if keyword != 'kes' else float(val)
+            return default
+
+        return {
+            "inflation": get_val("inflation", defaults["inflation"]),
+            "interest": get_val("interest", defaults["interest"]),
+            "exchange": get_val("kes", defaults["exchange"])
+        }
     except Exception as e:
-        # Fallback if automatic detection fails, returning default data
-        st.error(f"Error reading CBK file: {e}")
-        return {"inflation": 0.04, "interest": 0.12, "exchange": 150.0}
-
-    latest = df.iloc[-1]
-    return {
-        "inflation": float(latest.get("Inflation Rate (%)", 4.0)) / 100,
-        "interest": float(latest.get("91-day T-Bill Rate (%)", 12.0)) / 100,
-        "exchange": float(latest.get("KES/USD", 150.0)),
-    }
-
-eco_data = get_cbk_data()
+        st.error(f"Error parsing file: {e}")
+        return defaults
 
 # =========================================================
 # SIDEBAR INPUTS
 # =========================================================
 with st.sidebar:
     st.header("Financial DNA")
+    
+    # Data Input Method
+    data_source = st.radio("Economic Data Source", ["Manual/Default", "Upload File"])
+    
+    if data_source == "Upload File":
+        uploaded_file = st.file_uploader("Upload CSV, Excel, or HTML", type=["csv", "xlsx", "xls", "html", "json"])
+        eco_data = load_economic_data(uploaded_file)
+    else:
+        eco_data = {"inflation": 0.05, "interest": 0.12, "exchange": 129.0}
 
     currency_choice = st.selectbox("Currency", list(CURRENCIES.keys()))
     currency_symbol = CURRENCIES[currency_choice]
 
     mode = st.radio("Primary Objective", ["Protect Wealth (Rich)", "Create Wealth (Poor)"])
 
-    income = st.number_input(f"Monthly Income ({currency_symbol})",
-                             value=10000 if mode == "Protect Wealth (Rich)" else 3000)
-    expenses = st.number_input(f"Monthly Expenses ({currency_symbol})",
-                               value=4000 if mode == "Protect Wealth (Rich)" else 2500)
-    assets = st.number_input(f"Current Assets ({currency_symbol})",
-                             value=500000 if mode == "Protect Wealth (Rich)" else 1000)
+    income = st.number_input(f"Monthly Income ({currency_symbol})", value=10000 if mode == "Protect Wealth (Rich)" else 3000)
+    expenses = st.number_input(f"Monthly Expenses ({currency_symbol})", value=4000 if mode == "Protect Wealth (Rich)" else 2500)
+    assets = st.number_input(f"Current Assets ({currency_symbol})", value=500000 if mode == "Protect Wealth (Rich)" else 1000)
 
     st.divider()
-    st.subheader("Economic Variables (CBK + Manual)")
-    st.metric("Inflation Rate (%)", f"{eco_data['inflation']*100:.2f}%")
-    st.metric("Interest Rate (%)", f"{eco_data['interest']*100:.2f}%")
-    st.metric("Exchange Rate (KES/USD)", f"{eco_data['exchange']:.2f}")
+    st.subheader("Economic Variables")
+    
+    # Allow manual override even if file is uploaded
+    inf_rate = st.number_input("Inflation Rate (%)", value=eco_data['inflation']*100) / 100
+    int_rate = st.number_input("Interest Rate (%)", value=eco_data['interest']*100) / 100
+    exc_rate = st.number_input("Exchange Rate (Local/USD)", value=eco_data['exchange'])
 
-    # Manual inputs for variables CBK doesn’t publish
-    growth = st.number_input("Expected Market Growth (%)", min_value=0.0, max_value=100.0, value=8.0, step=0.1) / 100
-    tax = st.number_input("Tax Leakage (%)", min_value=0.0, max_value=100.0, value=25.0, step=0.1) / 100
-    unemployment = st.number_input("Unemployment Rate (%)", min_value=0.0, max_value=100.0, value=6.0, step=0.1) / 100
-    debt_gdp = st.number_input("Debt-to-GDP (%)", min_value=0.0, max_value=200.0, value=65.0, step=0.1) / 100
-
-    st.divider()
-    st.subheader("Time Horizon")
-    years = st.number_input("Projection Horizon (Years)", min_value=1, max_value=100, value=30, step=1)
-
-    st.subheader("View Mode")
+    growth = st.number_input("Expected Market Growth (%)", value=8.0) / 100
+    tax = st.number_input("Tax Leakage (%)", value=25.0) / 100
+    years = st.number_input("Projection Horizon (Years)", min_value=1, max_value=100, value=20)
     view_mode = st.radio("Cash Flow Display", ["Monthly", "Yearly"])
 
 # =========================================================
-# CORE PROJECTION ENGINE
+# PROJECTION LOGIC
 # =========================================================
-real_rate = (growth * (1 - tax)) - eco_data["inflation"]
+real_rate = (growth * (1 - tax)) - inf_rate
 monthly_surplus = income - expenses
 display_surplus = monthly_surplus if view_mode == "Monthly" else monthly_surplus * 12
 
 wealth_projection = []
 current_val = assets
 for _ in range(years + 1):
-    wealth_projection.append(current_val)
+    wealth_projection.append(max(0, current_val))
     current_val = (current_val + monthly_surplus * 12) * (1 + real_rate)
 
 # =========================================================
-# LEAKAGE DETECTOR
+# UI DISPLAY
 # =========================================================
-infl_loss, tax_loss, interest_drag, total_leak = calculate_annual_leakage(
-    assets, tax, eco_data["inflation"], eco_data["interest"]
-)
-
+# 1. Leakage Detector
 st.subheader("🧯 Leakage Detector")
+infl_loss, tax_loss, interest_drag, total_leak = calculate_annual_leakage(assets, tax, inf_rate, int_rate)
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Inflation Loss / Year", money(infl_loss))
-c2.metric("Tax Drag / Year", money(tax_loss))
-c3.metric("Interest Drag / Year", money(interest_drag))
+c1.metric("Inflation Loss/Yr", money(infl_loss))
+c2.metric("Tax Drag/Yr", money(tax_loss))
+c3.metric("Interest Drag/Yr", money(interest_drag))
 c4.metric("Total Annual Leakage", money(total_leak))
 
-# =========================================================
-# CASH FLOW CLARITY
-# =========================================================
-st.divider()
-st.subheader("💰 Cash Flow Clarity")
-st.metric(f"Surplus ({view_mode})", money(display_surplus))
-
-# =========================================================
-# OPPORTUNITY COST ENGINE
-# =========================================================
-st.divider()
-st.subheader("🚀 Opportunity Cost Engine")
-redirect = st.checkbox(f"Redirect {view_mode.lower()} cash from a liability to an asset")
-monthly_redirect = st.number_input(f"Monthly Amount to Redirect ({currency_symbol})", min_value=0, value=500, step=50)
-
-if redirect and monthly_redirect > 0:
-    future_val = opportunity_cost(
-        monthly_amount=monthly_redirect if view_mode == "Monthly" else monthly_redirect / 12,
-        annual_rate=growth * (1 - tax),
-        years=years
-    )
-    st.metric(f"Value of Redirected Cash ({years} Years)", money(future_val))
-
-# =========================================================
-# DEBT ERADICATOR
-# =========================================================
-st.divider()
-st.subheader("🪓 Debt Eradicator")
-
-method = st.radio("Payoff Strategy", ["Avalanche", "Snowball"])
-st.markdown("### Enter Your Debts")
-
-debts = []
-for i in range(1, 4):
-    col1, col2 = st.columns(2)
-    with col1:
-        balance = st.number_input(f"Debt {i} Balance", value=0.0, step=100.0)
-    with col2:
-        rate = st.number_input(f"Debt {i} Rate (%)", value=0.0, step=0.1) / 100
-    
-    if balance > 0 and rate > 0:
-        debts.append({"balance": balance, "rate": rate})
-
-# =========================================================
-# WEALTH PROJECTION VISUALIZATION (Moved to the end)
-# =========================================================
+# 2. Wealth Chart
 st.divider()
 st.subheader("📈 Wealth Projection")
-# Create a DataFrame for Plotly
-df_projection = pd.DataFrame({
-    'Year': range(years + 1),
-    'Wealth': wealth_projection
-})
-# Create an interactive Plotly line chart
-fig = px.line(df_projection, x='Year', y='Wealth', title='Projected Wealth Over Time')
-fig.update_traces(mode='lines+markers') # Add markers to the line
+df_projection = pd.DataFrame({'Year': range(years + 1), 'Wealth': wealth_projection})
+fig = px.line(df_projection, x='Year', y='Wealth', title=f'Wealth Forecast over {years} Years')
+fig.update_traces(line_color='#2ecc71', fill='tozeroy') 
 st.plotly_chart(fig, use_container_width=True)
+
+# 3. Opportunity Cost
+st.divider()
+st.subheader("🚀 Opportunity Cost Engine")
+col_a, col_b = st.columns(2)
+with col_a:
+    monthly_redirect = st.number_input(f"Monthly Amount to Redirect ({currency_symbol})", value=500)
+with col_b:
+    future_val = opportunity_cost(monthly_redirect, growth * (1-tax), years)
+    st.metric(f"Value of Redirected Cash ({years} Years)", money(future_val))
+
+st.success("Analysis Complete. Adjust parameters in the sidebar to stress-test your strategy.")
